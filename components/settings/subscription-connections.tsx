@@ -89,6 +89,7 @@ export function NativeSubscriptionUIProvider({ children }: { children: React.Rea
 			</> : view === "notice" ? <>
 				<p className="mt-3 text-xs leading-relaxed text-muted-foreground" data-testid="subscription-privacy-notice">{subscriptionNotice(descriptor.label, web)}</p>
 				{dialog === "github-copilot" && <p className="mt-3 text-xs leading-relaxed text-muted-foreground" data-testid="copilot-policy-notice">{COPILOT_POLICY_NOTICE}</p>}
+				{dialog === "google-antigravity" && <p className="mt-3 text-xs leading-relaxed text-red-400" data-testid="antigravity-policy-notice">This unofficial connection violates Google's terms of service and may result in account suspension or a ban. Gemini 4 Argon requires Google AI Ultra.</p>}
 			</> : <>
 				<div className="mt-4 flex items-center gap-3 text-xs text-foreground">
 					<Toggle label="Allow background use" checked={management ? status.allowBackgroundUse : background} disabled={busy || !!operation || status.pending || !status.available} onChange={(enabled) => { setBackground(enabled); if (management && bridge) void control(() => bridge.consent(dialog, enabled)); else setBackgroundDirty(true); }} />

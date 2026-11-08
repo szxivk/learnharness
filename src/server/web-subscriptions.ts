@@ -28,12 +28,7 @@ function publish(channel: Channel, packet: Packet) {
 	emit("subscriptions-changed", {});
 }
 async function loadSDK() {
-	const [sdk, copilot, xai] = await Promise.all([
-		import("@earendil-works/pi-ai"),
-		import("@earendil-works/pi-ai/providers/github-copilot"),
-		import("@earendil-works/pi-ai/providers/xai"),
-	]);
-	return { ...sdk, ...copilot, ...xai };
+	return import("../../electron/subscription-sdk.mjs");
 }
 
 /** Injectable factories/stores keep all test authentication offline. */

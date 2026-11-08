@@ -139,6 +139,17 @@ async function probe(standalone) {
 			noNetwork();
 			console.log(`[smoke-provider-runtime] ${name}: public native OAuth and ${seenApis.size} transport APIs initialized offline`);
 		}
+		const subscriptionSDK = await import(pathToFileURL(path.join(root, "electron/subscription-sdk.mjs")).href);
+		const antigravity = subscriptionSDK.antigravityProvider();
+		const antigravityAuth = await antigravity.auth.oauth.toAuth({ type: "oauth", access: "offline-access", refresh: "offline-refresh", expires: Date.now() + 3600000, projectId: "offline-project" });
+		assert.equal(antigravityAuth.apiKey, "offline-access");
+		let antigravityPayloads = 0;
+		const antigravityResult = await antigravity.streamSimple(antigravity.getModels()[0], subscriptionSDK.normalizeContext({ messages: [{ role: "user", content: "Offline initialization only", timestamp: 0 }] }), {
+			...antigravityAuth, onPayload() { antigravityPayloads++; throw new Error("offline-stop-before-dispatch"); },
+		}).result();
+		assert.equal(antigravityPayloads, 1); assert.equal(antigravityResult.stopReason, "error");
+		noNetwork();
+		console.log("[smoke-provider-runtime] Antigravity: shared desktop/web SDK, OAuth and transport initialized offline");
 		// Resolution/evaluation, not folder-exists checks. This also covers the
 		// previously missing transitive edge and permits legitimate nested deps.
 		for (const name of ["@google/genai", "google-auth-library", "gcp-metadata", "json-bigint", "bignumber.js"]) {

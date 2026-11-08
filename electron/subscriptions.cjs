@@ -1,12 +1,11 @@
 "use strict";
 const { randomUUID } = require("node:crypto");
 const path = require("node:path");
-const { createRequire, registerHooks } = require("node:module");
 const { pathToFileURL } = require("node:url");
 const { PROVIDERS, fileStore, validateCredential, safeHttps, failure } = require("./subscription-store.cjs");
 
-const LABELS = { "github-copilot": "GitHub Copilot", xai: "Grok" };
-const APIS = new Set(["openai-responses", "openai-completions", "anthropic-messages"]);
+const LABELS = { "github-copilot": "GitHub Copilot", xai: "Grok", "google-antigravity": "Google Antigravity" };
+const APIS = new Set(["openai-responses", "openai-completions", "anthropic-messages", "google-generative-ai"]);
 const clone = (value) => value === undefined ? undefined : JSON.parse(JSON.stringify(value));
 const MESSAGES = {
 	storage: "The saved connection could not be read or written safely. Reopen the app or reconnect after resolving the credential-file problem.",
@@ -21,26 +20,14 @@ const MESSAGES = {
 function publicError(error) { return MESSAGES[error?.code] ?? MESSAGES.unavailable; }
 /** Resolve the SAME SDK installation as the standalone server, through public exports. */
 async function loadSubscriptionSDK(baseDirectory) {
-	const resolve = createRequire(path.join(baseDirectory, "package.json"));
-	const load = (id) => {
-		// Pi exports are import-only. Resolve the public export with ESM
-		// conditions, then remove this synchronous, exact-specifier hook
-		// BEFORE evaluation; no private package path or global hook remains.
-		const hook = registerHooks({ resolve(specifier, context, next) {
-			return next(specifier, specifier === id ? { ...context, conditions: [...context.conditions, "import"] } : context);
-		} });
-		let file;
-		try { file = resolve.resolve(id); } finally { hook.deregister(); }
-		return import(pathToFileURL(file).href);
-	};
-	const [sdk, copilot, xai] = await Promise.all([load("@earendil-works/pi-ai"), load("@earendil-works/pi-ai/providers/github-copilot"), load("@earendil-works/pi-ai/providers/xai")]);
-	return { ...sdk, ...copilot, ...xai };
+	return import(pathToFileURL(path.join(baseDirectory, "electron/subscription-sdk.mjs")).href);
 }
 function validEndpoint(providerId, auth, credential) {
 	if (!auth || (!(typeof auth.apiKey === "string" && auth.apiKey.length > 0) && !Object.entries(auth.headers ?? {}).some(([key, value]) => ["authorization", "x-api-key", "api-key"].includes(key.toLowerCase()) && typeof value === "string" && value.trim().length > 0))) return false;
 	const value = auth.baseUrl ?? (providerId === "xai" ? "https://api.x.ai/v1" : "https://api.individual.githubcopilot.com");
 	if (!safeHttps(value)) return false;
 	const url = new URL(value);
+	if (providerId === "google-antigravity") return url.origin === "https://daily-cloudcode-pa.googleapis.com" && url.pathname === "/" && !url.search && !url.hash && typeof credential?.projectId === "string" && /^[a-zA-Z0-9._:-]{1,256}$/.test(credential.projectId) && auth.headers?.["x-lh-antigravity-project"] === credential.projectId;
 	if (providerId === "xai") return url.origin === "https://api.x.ai" && url.pathname.replace(/\/$/, "") === "/v1" && !url.search && !url.hash;
 	const domain = credential?.enterpriseUrl;
 	return !url.search && !url.hash && url.pathname === "/" && (!url.port || url.port === "443") && (url.hostname.endsWith(".githubcopilot.com") || (domain && (url.hostname === domain || url.hostname.endsWith(`.${domain}`))));
@@ -99,7 +86,7 @@ function createSubscriptions(options) {
 		await Promise.all([...entries.values()].map(async (entry) => {
 			try {
 				entry.state = clone(await entry.disk.read());
-				const native = entry.providerId === "github-copilot" ? sdk.githubCopilotProvider() : sdk.xaiProvider();
+				const native = entry.providerId === "github-copilot" ? sdk.githubCopilotProvider() : entry.providerId === "xai" ? sdk.xaiProvider() : sdk.antigravityProvider();
 				// No API-key auth method exists in this collection: ambient keys cannot become a fallback.
 				entry.provider = { ...native, auth: { oauth: native.auth.oauth } };
 				const store = {

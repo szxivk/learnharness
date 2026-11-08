@@ -5,6 +5,7 @@ import { NATIVE_SUBSCRIPTIONS, type NativeSubscriptionScope } from "../core/cont
 import { nativeSubscriptionId, nativeSubscriptionBackgroundAllowed, subscriptionScope, subscriptionScopeCurrent, subscriptionAdmissionScope, subscriptionLease, subscriptionAbortController, subscriptionDenial } from "./subscription-bridge.ts";
 import { markUnadmittedUsage, type SubscriptionDispatchLifecycle } from "./subscription-request-cycle.ts";
 import { capturePreparedBackgroundPayload } from "./background-capture.ts";
+import { antigravityFetch } from "../../electron/antigravity.mjs";
 
 export function nativeSubscriptionError(provider: string, message: string): string {
 	const label = NATIVE_SUBSCRIPTIONS.find((p) => p.logicalId === provider)?.label ?? "Subscription";
@@ -51,7 +52,7 @@ export function nativeSubscriptionStream(provider: Provider, background: () => b
 				const nativeModel = provider.getModels().find((model) => model.id === logicalModel.id && model.api === logicalModel.api);
 				if (!nativeModel) throw new Error("Native model unavailable");
 				const transport = { ...nativeModel, ...(auth.baseUrl ? { baseUrl: auth.baseUrl } : {}) };
-				const fetch = options?.fetch ?? globalThis.fetch;
+				const fetch = options?.fetch ?? (nativeId === "google-antigravity" ? antigravityFetch : globalThis.fetch);
 				const source = provider.streamSimple(transport, subscriptionHistory(normalizeContext(context), logicalModel, nativeId), {
 					...options, apiKey: auth.apiKey, headers: { ...options?.headers, ...auth.headers }, signal, maxRetries: 0,
 					fetch: (input, init) => {

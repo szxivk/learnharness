@@ -7,6 +7,7 @@ import { createRequire } from "node:module";
 import { createModels, type OAuthCredential, type ProviderAuthInteraction } from "@earendil-works/pi-ai";
 import { githubCopilotProvider } from "@earendil-works/pi-ai/providers/github-copilot";
 import { xaiProvider } from "@earendil-works/pi-ai/providers/xai";
+import { antigravityProvider } from "../electron/antigravity.mjs";
 
 const directory = await fs.mkdtemp(path.join(os.tmpdir(), "lh-web-sub-"));
 process.env.LH_AUTH_FILE = path.join(directory, "auth.json");
@@ -28,9 +29,9 @@ globalThis.fetch = async (input) => {
 	return Response.json({ models: [{ slug: model.id, display_name: "Fixture ChatGPT", visibility: "list" }] });
 };
 const copilot = githubCopilotProvider().getModels()[0]!;
-const credentials = (id: string): OAuthCredential => ({ type: "oauth", access: id === "xai" ? "fixture-xai-access" : "tid=fixture;proxy-ep=proxy.individual.githubcopilot.com;", refresh: "fixture-refresh", expires: Date.now() + 3600000, ...(id === "github-copilot" ? { availableModelIds: [copilot.id] } : {}) });
+const credentials = (id: string): OAuthCredential => ({ type: "oauth", access: id === "xai" ? "fixture-xai-access" : "tid=fixture;proxy-ep=proxy.individual.githubcopilot.com;", refresh: "fixture-refresh", expires: Date.now() + 3600000, ...(id === "github-copilot" ? { availableModelIds: [copilot.id] } : id === "google-antigravity" ? { projectId: "fixture-project" } : {}) });
 await fs.writeFile(path.join(directory, "chatgpt-credentials.json"), JSON.stringify({ version: 1, hostId: "fixture-host", allowBackgroundUse: true, activeId: "fixture-account", registrations: [{ id: "fixture-account", clientId: "oaiapp_fixture", issuer: "https://auth.openai.com", subject: "fixture-subject", email: "fixture@example.invalid", tokens: { accessToken: "fixture-chatgpt-access", refreshToken: "fixture-chatgpt-refresh", idToken: "fixture-id-token", scopes: SCOPES, expiresAt: Date.now() + 3600000 } }] }), { mode: 0o600 });
-for (const id of ["github-copilot", "xai"]) await fs.writeFile(path.join(directory, `${id}-credentials.json`), JSON.stringify({ version: 1, allowBackgroundUse: true, connectionId: "00000000-0000-4000-8000-000000000001", credential: credentials(id) }), { mode: 0o600 });
+for (const id of ["github-copilot", "xai", "google-antigravity"]) await fs.writeFile(path.join(directory, `${id}-credentials.json`), JSON.stringify({ version: 1, allowBackgroundUse: true, connectionId: "00000000-0000-4000-8000-000000000001", credential: credentials(id) }), { mode: 0o600 });
 function request(command?: Record<string, unknown>, origin = "http://192.168.1.10:3000") {
 	return new Request(`${origin}/api/subscriptions`, { method: command ? "POST" : "GET", headers: { host: new URL(origin).host, origin, "sec-fetch-site": "same-origin", "x-learnharness-subscriptions": "1", "content-type": "application/json" }, ...(command ? { body: JSON.stringify(command) } : {}) });
 }
@@ -42,6 +43,9 @@ test("ordinary web restores configured sibling credentials, private runtime leas
 	assert.equal((await chat.chatGPTLease(chat.chatGPTScope(model.id), false)).accessToken, "fixture-chatgpt-access");
 	const xaiModel = native.nativeSubscriptionModels().find((entry) => entry.provider === "xai-subscription")!;
 	assert.equal((await native.subscriptionLease(native.subscriptionScope("xai", xaiModel.id), false)).apiKey, "fixture-xai-access");
+	assert(native.nativeSubscriptionConnected("google-antigravity"));
+	const antigravityModel = native.nativeSubscriptionModels().find((entry) => entry.provider === "google-antigravity-subscription")!;
+	assert.equal((await native.subscriptionLease(native.subscriptionScope("google-antigravity", antigravityModel.id), false)).headers?.["x-lh-antigravity-project"], "fixture-project");
 	const response = await subscriptionControlsResponse(request());
 	assert.equal(response.status, 200); assert.equal(response.headers.get("cache-control"), "no-store");
 	const publicState = await response.text();
@@ -90,10 +94,10 @@ test("HTTP controls reject cross-origin, simple-form and private credential oper
 
 function fakeSDK(login: (id: string, interaction: ProviderAuthInteraction) => Promise<OAuthCredential>) {
 	const factory = (id: string) => {
-		const provider = id === "xai" ? xaiProvider() : githubCopilotProvider();
+		const provider = id === "xai" ? xaiProvider() : id === "google-antigravity" ? antigravityProvider() : githubCopilotProvider();
 		return { ...provider, auth: { oauth: { ...provider.auth.oauth!, login: (interaction: ProviderAuthInteraction) => login(id, interaction), refresh: async () => credentials(id) } } };
 	};
-	return { createModels, githubCopilotProvider: () => factory("github-copilot"), xaiProvider: () => factory("xai") };
+	return { createModels, githubCopilotProvider: () => factory("github-copilot"), xaiProvider: () => factory("xai"), antigravityProvider: () => factory("google-antigravity") };
 }
 test("device browser actions preserve complete URLs privately, are origin-bound, one-use and cancellation-bound", async () => {
 	const scratch = await fs.mkdtemp(path.join(os.tmpdir(), "lh-web-action-"));
@@ -116,6 +120,33 @@ test("device browser actions preserve complete URLs privately, are origin-bound,
 		await owner.control("xai", { op: "cancel" }, "http://localhost:3000");
 		complete(credentials("xai")); await login;
 		assert.equal(await owner.takeBrowserAction(new URL(stale.browserAction!, "http://localhost:3000").searchParams.get("id")!, "http://localhost:3000"), undefined);
+	} finally { owner.close(); await fs.rm(scratch, { recursive: true, force: true }); }
+});
+
+test("web Antigravity sign-in accepts a private callback, publishes its catalog and disconnects independently", async () => {
+	const scratch = await fs.mkdtemp(path.join(os.tmpdir(), "lh-web-antigravity-"));
+	let prompted!: () => void;
+	const ready = new Promise<void>((resolve) => { prompted = resolve; });
+	const owner = createWebSubscriptionOwner({ directory: scratch, sdk: fakeSDK(async (id, interaction) => {
+		assert.equal(id, "google-antigravity");
+		interaction.notify({ type: "auth_url", url: "https://accounts.google.com/o/oauth2/v2/auth?state=fixture-private-state" });
+		const answer = interaction.prompt({ type: "manual_code", message: "Paste the Antigravity OAuth callback URL or authorization code:" }); prompted();
+		assert.equal(await answer, "http://localhost/callback?code=fixture-private-code");
+		return credentials(id);
+	}) });
+	try {
+		const pending = owner.control("google-antigravity", { op: "login", enabled: false }, "http://localhost:3000"); await ready;
+		const interaction = (await owner.native.status()).find((entry: { providerId: string }) => entry.providerId === "google-antigravity")!.interaction;
+		assert.equal(interaction.prompt.type, "manual_code"); assert(!JSON.stringify(interaction).includes("fixture-private-state"));
+		await owner.control("google-antigravity", { op: "respond", attemptId: interaction.attemptId, promptId: interaction.prompt.id, value: "http://localhost/callback?code=fixture-private-code" }, "http://localhost:3000");
+		await pending;
+		const snapshot = await owner.native.snapshot();
+		const status = snapshot.statuses.find((entry: { providerId: string }) => entry.providerId === "google-antigravity");
+		assert(status); assert(status.connected); assert(!status.allowBackgroundUse); assert(snapshot.models["google-antigravity"].length > 0);
+		assert(!JSON.stringify(snapshot).includes("fixture-private-code"));
+		await owner.control("google-antigravity", { op: "disconnect" }, "http://localhost:3000");
+		assert.equal((await owner.native.snapshot()).models["google-antigravity"].length, 0);
+		assert.deepEqual(JSON.parse(await fs.readFile(path.join(scratch, "google-antigravity-credentials.json"), "utf8")), { version: 1, allowBackgroundUse: false });
 	} finally { owner.close(); await fs.rm(scratch, { recursive: true, force: true }); }
 });
 

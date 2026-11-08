@@ -13,7 +13,7 @@ Object.assign(globalThis, { window: dom.window, document: dom.document, Element:
 let root: Root | undefined, host: HTMLDivElement | undefined;
 function deferred() { let resolve!: () => void; const promise = new Promise<void>((done) => { resolve = done; }); return { promise, resolve }; }
 function fixture(connected = false) {
-	let statuses: NativeSubscriptionStatus[] = ["github-copilot", "xai"].map((id) => ({ ...emptySubscriptionStatus(id as NativeSubscriptionProviderId), available: true, connected, connectionId: connected ? `local-${id}` : null }));
+	let statuses: NativeSubscriptionStatus[] = ["github-copilot", "xai", "google-antigravity"].map((id) => ({ ...emptySubscriptionStatus(id as NativeSubscriptionProviderId), available: true, connected, connectionId: connected ? `local-${id}` : null }));
 	const listeners = new Set<() => void>(), login = deferred();
 	const calls = { login: [] as unknown[][], cancel: 0, open: [] as unknown[][], consent: [] as unknown[][], disconnect: [] as string[], retry: [] as string[] };
 	function push(id: NativeSubscriptionProviderId, next: Partial<NativeSubscriptionStatus>) {
@@ -33,7 +33,7 @@ function fixture(connected = false) {
 }
 async function mount() {
 	host = document.createElement("div"); document.body.append(host); root = createRoot(host);
-	await act(async () => root!.render(<NativeSubscriptionUIProvider><NativeSubscriptionConnection providerId="github-copilot" /><NativeSubscriptionConnection providerId="xai" /></NativeSubscriptionUIProvider>));
+	await act(async () => root!.render(<NativeSubscriptionUIProvider><NativeSubscriptionConnection providerId="github-copilot" /><NativeSubscriptionConnection providerId="xai" /><NativeSubscriptionConnection providerId="google-antigravity" /></NativeSubscriptionUIProvider>));
 }
 function maybeButton(text: string, scope: ParentNode = document) { return [...scope.querySelectorAll<HTMLButtonElement>("button")].find((element) => element.textContent === text); }
 function button(text: string, scope: ParentNode = document) { const found = maybeButton(text, scope); assert(found, `missing button ${text}`); return found; }
@@ -45,19 +45,22 @@ async function click(element: HTMLElement) { assert(element); await act(async ()
 async function connectionStep(id: string) { await click(button("Connect", row(id))); await click(button("Continue", dialog())); }
 afterEach(async () => { await act(async () => root?.unmount()); host?.remove(); root = undefined; host = undefined; delete window.lh; });
 
-test("three compact rows render in approved order with no browser-only sign-in or fabricated identities", () => {
+test("four compact rows render in approved order with no browser-only sign-in or fabricated identities", () => {
 	const html = renderToStaticMarkup(<ChatGPTUIProvider><NativeSubscriptionUIProvider><SubscriptionConnections /></NativeSubscriptionUIProvider></ChatGPTUIProvider>);
 	assert(html.indexOf('data-testid="chatgpt-connection"') < html.indexOf('data-testid="github-copilot-connection"'));
 	assert(html.indexOf('data-testid="github-copilot-connection"') < html.indexOf('data-testid="xai-connection"'));
-	assert.equal((html.match(/>Connect<\/button>/g) ?? []).length, 3);
+	assert(html.indexOf('data-testid="xai-connection"') < html.indexOf('data-testid="google-antigravity-connection"'));
+	assert.equal((html.match(/>Connect<\/button>/g) ?? []).length, 4);
 	assert(!html.includes("@")); assert(!html.includes("Add accounts"));
 });
-for (const [id, label] of [["github-copilot", "GitHub Copilot"], ["xai", "Grok"]] as const) test(`${id}: disclosure and connection are separate steps with no duplicated content or early authorization`, async () => {
+for (const [id, label] of [["github-copilot", "GitHub Copilot"], ["xai", "Grok"], ["google-antigravity", "Google Antigravity"]] as const) test(`${id}: disclosure and connection are separate steps with no duplicated content or early authorization`, async () => {
 	const f = fixture(); await mount(); await click(button("Connect", row(id)));
 	assert.equal(dialog().querySelector("h2")?.textContent, label);
 	assert(dialog().querySelector('[data-testid="subscription-privacy-notice"]')); assert(!toggle());
 	assert.equal(!!dialog().querySelector('[data-testid="copilot-policy-notice"]'), id === "github-copilot");
 	if (id === "github-copilot") assert(dialog().textContent?.includes(COPILOT_POLICY_NOTICE));
+	assert.equal(!!dialog().querySelector('[data-testid="antigravity-policy-notice"]'), id === "google-antigravity");
+	if (id === "google-antigravity") assert(dialog().textContent?.includes("account suspension"));
 	assert(!maybeButton("Connect", dialog())); assert.deepEqual(f.calls.login, []); assert.deepEqual(f.calls.consent, []);
 	await click(button("Continue", dialog()));
 	assert.equal(dialog().querySelector("h2")?.textContent, label); assert.equal(toggle().getAttribute("aria-checked"), "true");
