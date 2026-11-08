@@ -1,3 +1,9 @@
+> **About this fork**
+>
+> This personal fork of [LearnHarness](https://github.com/amosblomqvist/learnharness) adds Google Antigravity sign-in to the browser and desktop apps, using CortexKit's authentication core.
+>
+> See [setup instructions and account-risk warnings](docs/getting-started.md). This unofficial integration is not endorsed by Google or the upstream project.
+
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/lh_banner_dark.png">
